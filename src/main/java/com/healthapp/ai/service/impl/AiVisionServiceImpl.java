@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,22 +27,23 @@ public class AiVisionServiceImpl implements AiVisionService {
 
     private static final String SYSTEM_INSTRUCTION = """
         You are a Senior Clinical Dietitian and Southeast Asian / Thai Food Specialist with 15+ years of experience in visual food portion estimation.
-        Analyze the provided food photograph with professional dietetic precision:
-        1. Identify the specific dish name in both English and accurate Thai script.
-        2. Estimate the realistic portion weight (in grams) relative to a standard 22-25cm dinner plate.
-        3. Break down the 7 core nutritional values:
-           - calories (kcal, integer)
-           - proteinG (grams, 1 decimal)
-           - carbsG (grams, 1 decimal)
-           - fatG (grams, 1 decimal)
-           - sodiumMg (milligrams, accurately calculating hidden sodium from fish sauce, soy sauce, oyster sauce, MSG)
-           - sugarG (grams, including hidden sugars in curries, marinades, dressings)
-           - fiberG (grams)
-        4. Detect the primary cooking method (BOILED, STEAMED, STIR_FRIED, DEEP_FRIED, GRILLED, RAW).
-        5. List all visible and inferred ingredients.
-        6. Provide actionable, practical dietetic health advice in Thai (e.g., sodium reduction, protein booster, glycemic control).
-        7. Provide a confidence score between 0.0 and 1.0.
-        Output MUST strictly conform to the provided JSON Schema.
+        Analyze the provided food photograph with professional dietetic precision.
+        
+        You MUST return a JSON object with EXACTLY these property names:
+        - "foodName": English name of the dish (e.g. "Beef Red Curry", "Pad Krapao Gai")
+        - "thaiName": Accurate Thai script name of the dish (e.g. "แกงเผ็ดเนื้อ", "ข้าวกะเพราไก่ไข่ดาว")
+        - "portionWeightGrams": Estimated net weight in grams (e.g. 350.0)
+        - "confidenceScore": Confidence score between 0.0 and 1.0 (e.g. 0.95)
+        - "calories": Total energy in kcal as integer (e.g. 545)
+        - "proteinG": Protein in grams (e.g. 24.5)
+        - "carbsG": Total carbohydrates in grams (e.g. 13.8)
+        - "fatG": Total fat in grams (e.g. 43.2)
+        - "sodiumMg": Sodium in milligrams, including hidden sodium from fish sauce, paste, MSG (e.g. 1420.0)
+        - "sugarG": Sugar in grams (e.g. 8.5)
+        - "fiberG": Dietary fiber in grams (e.g. 4.6)
+        - "cookingMethod": Cooking method (e.g. "BOILED", "STIR_FRIED", "DEEP_FRIED", "STEAMED", "GRILLED", "RAW")
+        - "ingredients": Array of detected ingredients (e.g. ["เนื้อวัวติดมัน", "กะทิ", "พริกแกงเผ็ด"])
+        - "healthTips": Practical dietetic advice in Thai explaining nutritional pros and cons of this dish
         """;
 
     @Override
@@ -59,10 +61,12 @@ public class AiVisionServiceImpl implements AiVisionService {
             String url = String.format("%s/models/%s:generateContent?key=%s",
                     geminiProperties.getBaseUrl(), model, apiKey);
 
-            String promptText = "Analyze this food image. Provide detailed nutritional breakdown.";
+            String promptText = "Analyze this food image. Identify the dish name in both English and Thai, estimate portion weight in grams, break down calories and all 7 nutrients, list ingredients, and give health tips in Thai.";
             if (userNotes != null && !userNotes.trim().isEmpty()) {
                 promptText += " User specific notes/context: " + userNotes.trim();
             }
+
+            Map<String, Object> responseSchema = buildJsonSchema();
 
             Map<String, Object> requestPayload = Map.of(
                     "system_instruction", Map.of(
@@ -79,6 +83,7 @@ public class AiVisionServiceImpl implements AiVisionService {
                     ),
                     "generationConfig", Map.of(
                             "response_mime_type", "application/json",
+                            "response_schema", responseSchema,
                             "temperature", 0.2
                     )
             );
@@ -99,6 +104,30 @@ public class AiVisionServiceImpl implements AiVisionService {
         }
     }
 
+    private Map<String, Object> buildJsonSchema() {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("foodName", Map.of("type", "STRING", "description", "English name of the dish"));
+        properties.put("thaiName", Map.of("type", "STRING", "description", "Thai name of the dish"));
+        properties.put("portionWeightGrams", Map.of("type", "NUMBER", "description", "Estimated portion in grams"));
+        properties.put("confidenceScore", Map.of("type", "NUMBER", "description", "Confidence score 0.0-1.0"));
+        properties.put("calories", Map.of("type", "INTEGER", "description", "Calories in kcal"));
+        properties.put("proteinG", Map.of("type", "NUMBER", "description", "Protein in grams"));
+        properties.put("carbsG", Map.of("type", "NUMBER", "description", "Carbs in grams"));
+        properties.put("fatG", Map.of("type", "NUMBER", "description", "Fat in grams"));
+        properties.put("sodiumMg", Map.of("type", "NUMBER", "description", "Sodium in mg"));
+        properties.put("sugarG", Map.of("type", "NUMBER", "description", "Sugar in grams"));
+        properties.put("fiberG", Map.of("type", "NUMBER", "description", "Fiber in grams"));
+        properties.put("cookingMethod", Map.of("type", "STRING", "description", "Cooking method"));
+        properties.put("ingredients", Map.of("type", "ARRAY", "items", Map.of("type", "STRING")));
+        properties.put("healthTips", Map.of("type", "STRING", "description", "Health tips in Thai"));
+
+        return Map.of(
+                "type", "OBJECT",
+                "properties", properties,
+                "required", List.of("foodName", "thaiName", "portionWeightGrams", "calories", "proteinG", "carbsG", "fatG", "sodiumMg", "healthTips")
+        );
+    }
+
     private FoodAnalysisResponse parseGeminiResponse(String responseBody, String model) throws Exception {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode candidates = root.path("candidates");
@@ -112,6 +141,8 @@ public class AiVisionServiceImpl implements AiVisionService {
                 .get(0)
                 .path("text")
                 .asText();
+
+        log.info("Gemini raw parsed JSON: {}", jsonText);
 
         FoodAnalysisResponse response = objectMapper.readValue(jsonText, FoodAnalysisResponse.class);
         response.setAiModelUsed(model);
@@ -161,4 +192,3 @@ public class AiVisionServiceImpl implements AiVisionService {
                 .build();
     }
 }
-
