@@ -70,6 +70,36 @@ public class FoodAnalysisResponse {
     @Schema(description = "รายการวัตถุดิบและส่วนประกอบหลักที่ตรวจพบ")
     private List<String> ingredients;
 
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @Schema(description = "วัตถุดิบสำคัญในจานอาหารพร้อมน้ำหนักและสารอาหาร")
+    public static class KeyIngredientDto {
+        @Schema(description = "ชื่อวัตถุดิบ เช่น ข้าวสวย, เนื้อไก่, ไข่ดาว", example = "ข้าวสวย")
+        private String name;
+
+        @Schema(description = "น้ำหนักประมาณการ (กรัม)", example = "180.0")
+        private Double weightGrams;
+
+        @Schema(description = "พลังงาน (กิโลแคลอรี)", example = "234")
+        private Integer calories;
+
+        @Schema(description = "โปรตีน (กรัม)", example = "4.5")
+        private Double proteinG;
+
+        @Schema(description = "คาร์โบไฮเดรต (กรัม)", example = "50.0")
+        private Double carbsG;
+
+        @Schema(description = "ไขมัน (กรัม)", example = "0.6")
+        private Double fatG;
+    }
+
+    @JsonAlias({"key_ingredients", "majorIngredients", "major_ingredients"})
+    @Schema(description = "รายการวัตถุดิบสำคัญ 2-4 ตัวหลักในจานพร้อมน้ำหนักกรัม")
+    private List<KeyIngredientDto> keyIngredients;
+
     @JsonAlias({"health_tips", "healthTips", "advice", "dietetic_advice", "health_advice", "recommendations", "health_tip"})
     @Schema(description = "คำแนะนำสุขภาพจากนักกำหนดอาหาร", example = "เมนูนี้ให้โปรตีนสูง เหมาะสำหรับการสร้างกล้ามเนื้อ แต่มีปริมาณโซเดียมและน้ำมันค่อนข้างมาก แนะนำลดการราดพริกน้ำปลาเพิ่ม")
     private String healthTips;

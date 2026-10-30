@@ -51,6 +51,7 @@ public class AiVisionServiceImpl implements AiVisionService {
         - "fiberG": Dietary fiber in grams (e.g. 4.6)
         - "cookingMethod": Cooking method (e.g. "BOILED", "STIR_FRIED", "DEEP_FRIED", "STEAMED", "GRILLED", "RAW")
         - "ingredients": Array of detected ingredients (e.g. ["เนื้อวัวติดมัน", "กะทิ", "พริกแกงเผ็ด"])
+        - "keyIngredients": Array of 2 to 4 major calorie-contributing components (e.g. cooked rice, chicken, fried egg), each an object with: "name" (Thai string), "weightGrams" (number), "calories" (integer), "proteinG" (number), "carbsG" (number), "fatG" (number)
         - "healthTips": Practical dietetic advice in Thai explaining nutritional pros and cons of this dish
         """;
 
@@ -177,6 +178,25 @@ public class AiVisionServiceImpl implements AiVisionService {
         properties.put("fiberG", Map.of("type", "NUMBER", "description", "Fiber in grams"));
         properties.put("cookingMethod", Map.of("type", "STRING", "description", "Cooking method"));
         properties.put("ingredients", Map.of("type", "ARRAY", "items", Map.of("type", "STRING")));
+
+        Map<String, Object> keyIngredientProperties = new LinkedHashMap<>();
+        keyIngredientProperties.put("name", Map.of("type", "STRING", "description", "Ingredient name in Thai"));
+        keyIngredientProperties.put("weightGrams", Map.of("type", "NUMBER", "description", "Estimated weight in grams"));
+        keyIngredientProperties.put("calories", Map.of("type", "INTEGER", "description", "Calories in kcal"));
+        keyIngredientProperties.put("proteinG", Map.of("type", "NUMBER", "description", "Protein in grams"));
+        keyIngredientProperties.put("carbsG", Map.of("type", "NUMBER", "description", "Carbs in grams"));
+        keyIngredientProperties.put("fatG", Map.of("type", "NUMBER", "description", "Fat in grams"));
+
+        properties.put("keyIngredients", Map.of(
+                "type", "ARRAY",
+                "description", "2 to 4 major calorie-contributing ingredients",
+                "items", Map.of(
+                        "type", "OBJECT",
+                        "properties", keyIngredientProperties,
+                        "required", List.of("name", "weightGrams", "calories", "proteinG", "carbsG", "fatG")
+                )
+        ));
+
         properties.put("healthTips", Map.of("type", "STRING", "description", "Health tips in Thai"));
 
         return Map.of(
@@ -242,6 +262,32 @@ public class AiVisionServiceImpl implements AiVisionService {
                         "กระเทียม (Garlic)",
                         "น้ำมันพืช (Vegetable Oil)",
                         "ซอสปรุงรสและน้ำปลา (Seasoning Sauce & Fish Sauce)"
+                ))
+                .keyIngredients(List.of(
+                        FoodAnalysisResponse.KeyIngredientDto.builder()
+                                .name("ข้าวสวย")
+                                .weightGrams(180.0)
+                                .calories(234)
+                                .proteinG(4.5)
+                                .carbsG(50.4)
+                                .fatG(0.6)
+                                .build(),
+                        FoodAnalysisResponse.KeyIngredientDto.builder()
+                                .name("เนื้ออกไก่ผัดกะเพรา")
+                                .weightGrams(120.0)
+                                .calories(220)
+                                .proteinG(21.5)
+                                .carbsG(4.0)
+                                .fatG(13.0)
+                                .build(),
+                        FoodAnalysisResponse.KeyIngredientDto.builder()
+                                .name("ไข่ดาว")
+                                .weightGrams(50.0)
+                                .calories(120)
+                                .proteinG(6.5)
+                                .carbsG(0.6)
+                                .fatG(10.0)
+                                .build()
                 ))
                 .healthTips("เมนูนี้ให้โปรตีนสูงถึง 32.5 กรัม เหมาะสำหรับการสร้างกล้ามเนื้อ แต่อาจมีโซเดียมและน้ำมันผัดค่อนข้างมาก หากกำลังควบคุมน้ำหนักแนะนำลดการราดพริกน้ำปลาเพิ่ม"
                         + (userNotes != null && !userNotes.isEmpty() ? " (หมายเหตุผู้ใช้: " + userNotes + ")" : ""))
