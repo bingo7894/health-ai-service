@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "gemini")
 public class GeminiProperties {
     private String apiKey = "";
-    private String model = "gemini-3.8-flash";
+    private String model = "gemini-3.5-flash-lite";
     private String baseUrl = "https://generativelanguage.googleapis.com/v1beta";
 }
 

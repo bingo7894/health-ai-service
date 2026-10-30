@@ -11,6 +11,12 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,6 +30,8 @@ public class AiVisionServiceImpl implements AiVisionService {
     private final GeminiProperties geminiProperties;
     private final ObjectMapper objectMapper;
     private final RestClient restClient = RestClient.builder().build();
+
+    private static final int MAX_IMAGE_DIMENSION = 1024;
 
     private static final String SYSTEM_INSTRUCTION = """
         You are a Senior Clinical Dietitian and Southeast Asian / Thai Food Specialist with 15+ years of experience in visual food portion estimation.
@@ -56,7 +64,9 @@ public class AiVisionServiceImpl implements AiVisionService {
         }
 
         try {
-            String base64Image = Base64.getEncoder().encodeToString(imageBytes);
+            // Compress & downscale large images to ~150-250KB for sub-2-second speed
+            byte[] processedBytes = downscaleImageIfNeeded(imageBytes);
+            String base64Image = Base64.getEncoder().encodeToString(processedBytes);
             String model = geminiProperties.getModel();
             String url = String.format("%s/models/%s:generateContent?key=%s",
                     geminiProperties.getBaseUrl(), model, apiKey);
@@ -76,7 +86,7 @@ public class AiVisionServiceImpl implements AiVisionService {
                             Map.of("parts", List.of(
                                     Map.of("text", promptText),
                                     Map.of("inline_data", Map.of(
-                                            "mime_type", mimeType != null ? mimeType : "image/jpeg",
+                                            "mime_type", "image/jpeg",
                                             "data", base64Image
                                     ))
                             ))
@@ -88,7 +98,10 @@ public class AiVisionServiceImpl implements AiVisionService {
                     )
             );
 
-            log.info("Sending image to Gemini Vision API (Model: {})...", model);
+            log.info("Sending image to Gemini Vision API (Model: {}, ImageSize: {} KB)...",
+                    model, processedBytes.length / 1024);
+            long startTime = System.currentTimeMillis();
+
             String responseBody = restClient.post()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -96,11 +109,56 @@ public class AiVisionServiceImpl implements AiVisionService {
                     .retrieve()
                     .body(String.class);
 
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("Gemini Vision API responded successfully in {} ms ({} seconds)",
+                    duration, String.format("%.2f", duration / 1000.0));
+
             return parseGeminiResponse(responseBody, model);
 
         } catch (Exception e) {
             log.error("Error communicating with Gemini Vision API: {}. Returning Mock Fallback.", e.getMessage(), e);
             return getMockAnalysis(userNotes);
+        }
+    }
+
+    private byte[] downscaleImageIfNeeded(byte[] originalBytes) {
+        try {
+            BufferedImage original = ImageIO.read(new ByteArrayInputStream(originalBytes));
+            if (original == null) {
+                return originalBytes;
+            }
+
+            int width = original.getWidth();
+            int height = original.getHeight();
+
+            if (width <= MAX_IMAGE_DIMENSION && height <= MAX_IMAGE_DIMENSION) {
+                return originalBytes;
+            }
+
+            int newWidth;
+            int newHeight;
+            if (width > height) {
+                newWidth = MAX_IMAGE_DIMENSION;
+                newHeight = (int) ((double) height / width * MAX_IMAGE_DIMENSION);
+            } else {
+                newHeight = MAX_IMAGE_DIMENSION;
+                newWidth = (int) ((double) width / height * MAX_IMAGE_DIMENSION);
+            }
+
+            BufferedImage resized = new BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = resized.createGraphics();
+            g.drawImage(original.getScaledInstance(newWidth, newHeight, Image.SCALE_SMOOTH), 0, 0, null);
+            g.dispose();
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(resized, "jpg", baos);
+            byte[] result = baos.toByteArray();
+            log.info("Optimized input image from {} KB down to {} KB ({}x{} -> {}x{})",
+                    originalBytes.length / 1024, result.length / 1024, width, height, newWidth, newHeight);
+            return result;
+        } catch (Exception e) {
+            log.warn("Image downscaling skipped due to: {}. Using original bytes.", e.getMessage());
+            return originalBytes;
         }
     }
 
